@@ -1,15 +1,69 @@
 import React, { useState } from 'react';
-import { Upload, Download, FileText, AlertCircle, CheckCircle, Loader } from 'lucide-react';
+import { Upload, FolderOpen, FileText, AlertCircle, CheckCircle, Loader } from 'lucide-react';
 import { convertSinglePDF, convertMultiplePDFs } from '../services/api';
 import './Converter.css';
 
 const Converter = () => {
   const [files, setFiles] = useState([]);
   const [outputDir, setOutputDir] = useState('');
+  const [folderHandle, setFolderHandle] = useState(null);
+  const [folderLabel, setFolderLabel] = useState('');
   const [isConverting, setIsConverting] = useState(false);
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const [conversionMode, setConversionMode] = useState('single'); // 'single' or 'multiple'
+
+  const isFileSystemAccessSupported = () => {
+    return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+  };
+
+  const verifyFolderPermission = async (handle) => {
+    if (!handle) return false;
+    const opts = { mode: 'readwrite' };
+    if (await handle.queryPermission(opts) === 'granted') return true;
+    if (await handle.requestPermission(opts) === 'granted') return true;
+    return false;
+  };
+
+  const selectOutputFolder = async () => {
+    try {
+      if (!isFileSystemAccessSupported()) {
+        setError('Your browser does not support selecting a local folder. Please use Chrome/Edge or specify a server-side output directory.');
+        return;
+      }
+      const handle = await window.showDirectoryPicker();
+      const hasPerm = await verifyFolderPermission(handle);
+      if (!hasPerm) {
+        setError('Permission to access the selected folder was denied.');
+        return;
+      }
+      setFolderHandle(handle);
+      // Browsers do not expose full absolute path; use name label
+      setFolderLabel(handle.name || 'Selected folder');
+      // Mirror label to the text input for clarity (non-authoritative)
+      setOutputDir(handle.name || '');
+      setError(null);
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // user cancelled
+      setError(e?.message || 'Failed to select folder');
+    }
+  };
+
+  const saveMarkdownToFolder = async (name, content) => {
+    if (!folderHandle) return null;
+    try {
+      const hasPerm = await verifyFolderPermission(folderHandle);
+      if (!hasPerm) return null;
+      const fileHandle = await folderHandle.getFileHandle(name, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      return `${folderHandle.name}/${name}`; // display label; not absolute path
+    } catch (e) {
+      console.error('Saving to selected folder failed:', e);
+      return null;
+    }
+  };
 
   const handleFileSelect = (event) => {
     const selectedFiles = Array.from(event.target.files);
@@ -24,12 +78,9 @@ const Converter = () => {
     setError(null);
     setResults(null);
     
-    // Set default output directory to the same directory as the first PDF file
-    if (pdfFiles.length > 0 && !outputDir) {
-      const filePath = pdfFiles[0].webkitRelativePath || pdfFiles[0].name;
-      const directory = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '.';
-      setOutputDir(directory);
-    }
+    // If user has not picked a folder via the File System Access API,
+    // we can't infer a real local path due to browser security.
+    // Encourage selecting a folder explicitly.
   };
 
   const handleOutputDirChange = (event) => {
@@ -54,7 +105,26 @@ const Converter = () => {
         response = await convertMultiplePDFs(files, outputDir);
       }
       
-      setResults(response);
+      // Attempt client-side save if a folder is selected and API supported
+      if (folderHandle && isFileSystemAccessSupported()) {
+        if (conversionMode === 'single' && response?.success) {
+          const savedLabelPath = await saveMarkdownToFolder(response.markdown_filename, response.markdown_content || '');
+          setResults({ ...response, client_saved_path: savedLabelPath });
+        } else if (response?.results?.length) {
+          const enriched = await Promise.all(response.results.map(async (r) => {
+            if (r.success) {
+              const p = await saveMarkdownToFolder(r.markdown_filename, r.markdown_content || '');
+              return { ...r, client_saved_path: p };
+            }
+            return r;
+          }));
+          setResults({ ...response, results: enriched });
+        } else {
+          setResults(response);
+        }
+      } else {
+        setResults(response);
+      }
     } catch (err) {
       setError(err.message || 'Conversion failed. Please try again.');
     } finally {
@@ -161,6 +231,15 @@ const Converter = () => {
             placeholder="Leave empty to use default location"
             className="output-input"
           />
+          <div className="folder-picker-row">
+            <button type="button" className="folder-button" onClick={selectOutputFolder}>
+              <FolderOpen className="button-icon" />
+              Select output folder (local)
+            </button>
+            {folderLabel && (
+              <span className="folder-label">Selected: {folderLabel}</span>
+            )}
+          </div>
         </div>
 
         {/* Error Display */}
@@ -218,12 +297,16 @@ const Converter = () => {
                   <p><strong>Markdown Size:</strong> {(results.markdown_size / 1024).toFixed(2)} KB</p>
                   <div className="file-location">
                     <p><strong>Saved to:</strong></p>
-                    <p className="file-path">{results.output_directory}/{results.markdown_filename}</p>
+                    {folderHandle && results.client_saved_path ? (
+                      <p className="file-path">{results.client_saved_path}</p>
+                    ) : (
+                      <p className="file-path">{results.output_directory}/{results.markdown_filename}</p>
+                    )}
                   </div>
                 </div>
                 <div className="success-message">
                   <CheckCircle className="success-icon small" />
-                  <span>Markdown file has been saved to the specified output directory</span>
+                  <span>Markdown file has been saved{folderHandle ? ' to the selected local folder' : ' to the server output directory'}</span>
                 </div>
               </div>
             ) : (
@@ -235,9 +318,11 @@ const Converter = () => {
                   </span>
                 </div>
                 
-                <div className="output-directory-info">
-                  <p><strong>Output Directory:</strong> {results.output_directory}</p>
-                </div>
+                {!folderHandle && (
+                  <div className="output-directory-info">
+                    <p><strong>Server Output Directory:</strong> {results.output_directory}</p>
+                  </div>
+                )}
                 
                 <div className="results-list">
                   {results.results.map((result, index) => (
@@ -255,7 +340,11 @@ const Converter = () => {
                         <div className="result-item-details">
                           <p>Size Reduction: {result.compression_ratio}%</p>
                           <div className="file-location">
-                            <p><strong>Saved as:</strong> {result.markdown_filename}</p>
+                            {folderHandle && result.client_saved_path ? (
+                              <p><strong>Saved to:</strong> {result.client_saved_path}</p>
+                            ) : (
+                              <p><strong>Saved to:</strong> {results.output_directory}/{result.markdown_filename}</p>
+                            )}
                           </div>
                         </div>
                       ) : (

@@ -188,6 +188,34 @@
   border-color: var(--accent-primary);
 }
 
+.folder-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.folder-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.folder-button:hover {
+  background-color: var(--border-hover);
+}
+
+.folder-label {
+  color: var(--text-secondary);
+}
+
 /* Error Message */
 .error-message {
   display: flex;
