@@ -23,6 +23,13 @@ const Converter = () => {
     setFiles(pdfFiles);
     setError(null);
     setResults(null);
+    
+    // Set default output directory to the same directory as the first PDF file
+    if (pdfFiles.length > 0 && !outputDir) {
+      const filePath = pdfFiles[0].webkitRelativePath || pdfFiles[0].name;
+      const directory = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '.';
+      setOutputDir(directory);
+    }
   };
 
   const handleOutputDirChange = (event) => {
@@ -55,9 +62,6 @@ const Converter = () => {
     }
   };
 
-  const handleDownload = (downloadUrl) => {
-    window.open(downloadUrl, '_blank');
-  };
 
   const resetForm = () => {
     setFiles([]);
@@ -212,14 +216,15 @@ const Converter = () => {
                   <p><strong>Size Reduction:</strong> {results.compression_ratio}%</p>
                   <p><strong>Original Size:</strong> {(results.original_size / 1024).toFixed(2)} KB</p>
                   <p><strong>Markdown Size:</strong> {(results.markdown_size / 1024).toFixed(2)} KB</p>
+                  <div className="file-location">
+                    <p><strong>Saved to:</strong></p>
+                    <p className="file-path">{results.output_directory}/{results.markdown_filename}</p>
+                  </div>
                 </div>
-                <button
-                  onClick={() => handleDownload(results.download_url)}
-                  className="download-button"
-                >
-                  <Download className="button-icon" />
-                  Download Markdown
-                </button>
+                <div className="success-message">
+                  <CheckCircle className="success-icon small" />
+                  <span>Markdown file has been saved to the specified output directory</span>
+                </div>
               </div>
             ) : (
               <div className="multiple-results">
@@ -228,6 +233,10 @@ const Converter = () => {
                   <span>
                     Converted {results.successful_conversions} of {results.total_files} files
                   </span>
+                </div>
+                
+                <div className="output-directory-info">
+                  <p><strong>Output Directory:</strong> {results.output_directory}</p>
                 </div>
                 
                 <div className="results-list">
@@ -245,13 +254,9 @@ const Converter = () => {
                       {result.success ? (
                         <div className="result-item-details">
                           <p>Size Reduction: {result.compression_ratio}%</p>
-                          <button
-                            onClick={() => handleDownload(result.download_url)}
-                            className="download-button small"
-                          >
-                            <Download className="button-icon" />
-                            Download
-                          </button>
+                          <div className="file-location">
+                            <p><strong>Saved as:</strong> {result.markdown_filename}</p>
+                          </div>
                         </div>
                       ) : (
                         <p className="error-text">{result.error}</p>

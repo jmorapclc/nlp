@@ -95,7 +95,16 @@ async def convert_single_pdf(
         raise HTTPException(status_code=500, detail="Converter not initialized")
     
     try:
-        # Create temporary directory for processing
+        # Set output directory
+        if output_dir:
+            output_path = Path(output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+        else:
+            # Use the same directory as the uploaded file (if possible) or current directory
+            output_path = Path.cwd() / "markdown_output"
+            output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Create temporary directory for processing the uploaded file
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_pdf_path = Path(temp_dir) / file.filename
             
@@ -103,14 +112,8 @@ async def convert_single_pdf(
             with open(temp_pdf_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             
-            # Set output directory
-            if output_dir:
-                converter.output_dir = Path(output_dir)
-                converter.output_dir.mkdir(exist_ok=True)
-            else:
-                # Use temp directory for output
-                converter.output_dir = Path(temp_dir) / "output"
-                converter.output_dir.mkdir(exist_ok=True)
+            # Set converter output directory
+            converter.output_dir = output_path
             
             # Convert PDF
             result_path = converter.convert_pdf(str(temp_pdf_path))
@@ -131,11 +134,12 @@ async def convert_single_pdf(
                 "success": True,
                 "filename": file.filename,
                 "markdown_filename": Path(result_path).name,
+                "markdown_path": str(result_path),
+                "output_directory": str(output_path),
                 "markdown_content": markdown_content,
                 "original_size": original_size,
                 "markdown_size": markdown_size,
-                "compression_ratio": round(compression_ratio, 1),
-                "download_url": f"/api/download/{Path(result_path).name}"
+                "compression_ratio": round(compression_ratio, 1)
             }
             
     except Exception as e:
@@ -169,15 +173,19 @@ async def convert_multiple_pdfs(
         raise HTTPException(status_code=500, detail="Converter not initialized")
     
     try:
+        # Set output directory
+        if output_dir:
+            output_path = Path(output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+        else:
+            # Use the same directory as the uploaded file (if possible) or current directory
+            output_path = Path.cwd() / "markdown_output"
+            output_path.mkdir(parents=True, exist_ok=True)
+        
         results = []
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Set output directory
-            if output_dir:
-                converter.output_dir = Path(output_dir)
-                converter.output_dir.mkdir(exist_ok=True)
-            else:
-                converter.output_dir = Path(temp_dir) / "output"
-                converter.output_dir.mkdir(exist_ok=True)
+            # Set converter output directory
+            converter.output_dir = output_path
             
             for file in files:
                 try:
@@ -203,11 +211,12 @@ async def convert_multiple_pdfs(
                             "success": True,
                             "filename": file.filename,
                             "markdown_filename": Path(result_path).name,
+                            "markdown_path": str(result_path),
+                            "output_directory": str(output_path),
                             "markdown_content": markdown_content,
                             "original_size": original_size,
                             "markdown_size": markdown_size,
-                            "compression_ratio": round(compression_ratio, 1),
-                            "download_url": f"/api/download/{Path(result_path).name}"
+                            "compression_ratio": round(compression_ratio, 1)
                         })
                     else:
                         results.append({
@@ -230,6 +239,7 @@ async def convert_multiple_pdfs(
                 "success": True,
                 "total_files": len(files),
                 "successful_conversions": len(successful_conversions),
+                "output_directory": str(output_path),
                 "results": results
             }
             
