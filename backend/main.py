@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,10 +27,23 @@ from pdf.pdf_to_markdown import PDFToMarkdownConverter
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Global converter instance
+converter = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize the converter on startup."""
+    global converter
+    converter = PDFToMarkdownConverter()
+    logger.info("PDF to Markdown converter initialized")
+    yield
+    logger.info("Shutting down PDF to Markdown converter")
+
 app = FastAPI(
     title="PDF to Markdown Converter",
     description="Convert PDF files to optimized markdown format",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Configure CORS
@@ -40,15 +54,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Global converter instance
-converter = None
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the converter on startup."""
-    global converter
-    converter = PDFToMarkdownConverter()
 
 @app.get("/")
 async def root():

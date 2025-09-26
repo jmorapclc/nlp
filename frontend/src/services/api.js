@@ -3,7 +3,7 @@ import axios from 'axios';
 // Create axios instance with base configuration
 const api = axios.create({
   baseURL: process.env.REACT_APP_API_URL || '/api',
-  timeout: 30000, // 30 seconds timeout for file uploads
+  timeout: 300000, // 5 minutes timeout for large PDF conversions
 });
 
 // Request interceptor for logging
@@ -32,7 +32,11 @@ api.interceptors.response.use(
       throw new Error(message);
     } else if (error.request) {
       // Request was made but no response received
-      throw new Error('No response from server. Please check if the backend is running.');
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Request timeout. The PDF conversion is taking longer than expected. Please try with a smaller file or wait longer.');
+      } else {
+        throw new Error('No response from server. Please check if the backend is running and try again.');
+      }
     } else {
       // Something else happened
       throw new Error(error.message || 'An unexpected error occurred');
@@ -54,14 +58,17 @@ export const convertSinglePDF = async (file, outputDir = '') => {
   }
 
   try {
+    console.log('Starting single PDF conversion...');
     const response = await api.post('/convert/single', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
     });
     
+    console.log('Single PDF conversion response:', response.data);
     return response.data;
   } catch (error) {
+    console.error('Single PDF conversion error:', error);
     throw new Error(`Single PDF conversion failed: ${error.message}`);
   }
 };
@@ -85,14 +92,17 @@ export const convertMultiplePDFs = async (files, outputDir = '') => {
   }
 
   try {
+    console.log('Starting multiple PDF conversion...');
     const response = await api.post('/convert/multiple', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
     });
     
+    console.log('Multiple PDF conversion response:', response.data);
     return response.data;
   } catch (error) {
+    console.error('Multiple PDF conversion error:', error);
     throw new Error(`Multiple PDF conversion failed: ${error.message}`);
   }
 };
