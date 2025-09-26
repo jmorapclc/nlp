@@ -48,13 +48,17 @@ api.interceptors.response.use(
  * Convert a single PDF file to markdown
  * @param {File} file - The PDF file to convert
  * @param {string} outputDir - Optional output directory
+ * @param {Object} splittingOptions - Optional file splitting options
  * @returns {Promise<Object>} Conversion result
  */
-export const convertSinglePDF = async (file, outputDir = '') => {
+export const convertSinglePDF = async (file, outputDir = '', splittingOptions = null) => {
   const formData = new FormData();
   formData.append('file', file);
   if (outputDir) {
     formData.append('output_dir', outputDir);
+  }
+  if (splittingOptions) {
+    formData.append('splitting_options', JSON.stringify(splittingOptions));
   }
 
   try {
@@ -77,9 +81,10 @@ export const convertSinglePDF = async (file, outputDir = '') => {
  * Convert multiple PDF files to markdown
  * @param {File[]} files - Array of PDF files to convert
  * @param {string} outputDir - Optional output directory
+ * @param {Object} splittingOptions - Optional file splitting options
  * @returns {Promise<Object>} Conversion results
  */
-export const convertMultiplePDFs = async (files, outputDir = '') => {
+export const convertMultiplePDFs = async (files, outputDir = '', splittingOptions = null) => {
   const formData = new FormData();
   
   // Append all files
@@ -89,6 +94,9 @@ export const convertMultiplePDFs = async (files, outputDir = '') => {
   
   if (outputDir) {
     formData.append('output_dir', outputDir);
+  }
+  if (splittingOptions) {
+    formData.append('splitting_options', JSON.stringify(splittingOptions));
   }
 
   try {

@@ -8,6 +8,7 @@ import os
 import sys
 import shutil
 import tempfile
+import json
 from pathlib import Path
 from typing import List, Optional
 import logging
@@ -22,6 +23,7 @@ import uvicorn
 # Add the parent directory to sys.path to import pdf_to_markdown
 sys.path.append(str(Path(__file__).parent.parent))
 from pdf.pdf_to_markdown import PDFToMarkdownConverter
+from file_splitter import FileSplitter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -76,7 +78,8 @@ async def health_check():
 @app.post("/api/convert/single")
 async def convert_single_pdf(
     file: UploadFile = File(...),
-    output_dir: Optional[str] = Form(None)
+    output_dir: Optional[str] = Form(None),
+    splitting_options: Optional[str] = Form(None)
 ):
     """
     Convert a single PDF file to markdown.
@@ -84,9 +87,10 @@ async def convert_single_pdf(
     Args:
         file: PDF file to convert
         output_dir: Optional output directory (defaults to temp directory)
+        splitting_options: Optional JSON string with file splitting options
     
     Returns:
-        JSON response with conversion result and download link
+        JSON response with conversion result and file paths
     """
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="File must be a PDF")
@@ -95,6 +99,14 @@ async def convert_single_pdf(
         raise HTTPException(status_code=500, detail="Converter not initialized")
     
     try:
+        # Parse splitting options
+        splitting_opts = {}
+        if splitting_options:
+            try:
+                splitting_opts = json.loads(splitting_options)
+            except json.JSONDecodeError:
+                logger.warning("Invalid splitting options JSON, ignoring")
+        
         # Set output directory
         if output_dir:
             output_path = Path(output_dir)
@@ -127,20 +139,52 @@ async def convert_single_pdf(
             
             # Get file stats
             original_size = temp_pdf_path.stat().st_size
-            markdown_size = Path(result_path).stat().st_size
-            compression_ratio = (1 - markdown_size / original_size) * 100
+            original_markdown_size = Path(result_path).stat().st_size
+            compression_ratio = (1 - original_markdown_size / original_size) * 100
             
-            return {
-                "success": True,
-                "filename": file.filename,
-                "markdown_filename": Path(result_path).name,
-                "markdown_path": str(result_path),
-                "output_directory": str(output_path),
-                "markdown_content": markdown_content,
-                "original_size": original_size,
-                "markdown_size": markdown_size,
-                "compression_ratio": round(compression_ratio, 1)
-            }
+            # Handle file splitting if enabled
+            splitter = FileSplitter(splitting_opts)
+            split_files = splitter.split_content(markdown_content, Path(result_path).name)
+            
+            if len(split_files) == 1 and not split_files[0]['is_split']:
+                # No splitting needed
+                return {
+                    "success": True,
+                    "filename": file.filename,
+                    "markdown_filename": Path(result_path).name,
+                    "markdown_path": str(result_path),
+                    "output_directory": str(output_path),
+                    "markdown_content": markdown_content,
+                    "original_size": original_size,
+                    "markdown_size": original_markdown_size,
+                    "compression_ratio": round(compression_ratio, 1),
+                    "is_split": False
+                }
+            else:
+                # Files were split
+                saved_files = splitter.save_split_files(split_files, output_path)
+                
+                # Remove the original file if it was split
+                if len(split_files) > 1:
+                    try:
+                        os.remove(result_path)
+                    except OSError:
+                        pass
+                
+                total_markdown_size = sum(f['size'] for f in saved_files)
+                compression_ratio = (1 - total_markdown_size / original_size) * 100
+                
+                return {
+                    "success": True,
+                    "filename": file.filename,
+                    "output_directory": str(output_path),
+                    "original_size": original_size,
+                    "markdown_size": total_markdown_size,
+                    "compression_ratio": round(compression_ratio, 1),
+                    "is_split": True,
+                    "split_files": saved_files,
+                    "total_files": len(saved_files)
+                }
             
     except Exception as e:
         logger.error(f"Error converting PDF {file.filename}: {e}")
@@ -149,7 +193,8 @@ async def convert_single_pdf(
 @app.post("/api/convert/multiple")
 async def convert_multiple_pdfs(
     files: List[UploadFile] = File(...),
-    output_dir: Optional[str] = Form(None)
+    output_dir: Optional[str] = Form(None),
+    splitting_options: Optional[str] = Form(None)
 ):
     """
     Convert multiple PDF files to markdown.
@@ -157,6 +202,7 @@ async def convert_multiple_pdfs(
     Args:
         files: List of PDF files to convert
         output_dir: Optional output directory (defaults to temp directory)
+        splitting_options: Optional JSON string with file splitting options
     
     Returns:
         JSON response with conversion results
@@ -173,6 +219,14 @@ async def convert_multiple_pdfs(
         raise HTTPException(status_code=500, detail="Converter not initialized")
     
     try:
+        # Parse splitting options
+        splitting_opts = {}
+        if splitting_options:
+            try:
+                splitting_opts = json.loads(splitting_options)
+            except json.JSONDecodeError:
+                logger.warning("Invalid splitting options JSON, ignoring")
+        
         # Set output directory
         if output_dir:
             output_path = Path(output_dir)
@@ -204,20 +258,52 @@ async def convert_multiple_pdfs(
                         
                         # Get file stats
                         original_size = temp_pdf_path.stat().st_size
-                        markdown_size = Path(result_path).stat().st_size
-                        compression_ratio = (1 - markdown_size / original_size) * 100
+                        original_markdown_size = Path(result_path).stat().st_size
+                        compression_ratio = (1 - original_markdown_size / original_size) * 100
                         
-                        results.append({
-                            "success": True,
-                            "filename": file.filename,
-                            "markdown_filename": Path(result_path).name,
-                            "markdown_path": str(result_path),
-                            "output_directory": str(output_path),
-                            "markdown_content": markdown_content,
-                            "original_size": original_size,
-                            "markdown_size": markdown_size,
-                            "compression_ratio": round(compression_ratio, 1)
-                        })
+                        # Handle file splitting if enabled
+                        splitter = FileSplitter(splitting_opts)
+                        split_files = splitter.split_content(markdown_content, Path(result_path).name)
+                        
+                        if len(split_files) == 1 and not split_files[0]['is_split']:
+                            # No splitting needed
+                            results.append({
+                                "success": True,
+                                "filename": file.filename,
+                                "markdown_filename": Path(result_path).name,
+                                "markdown_path": str(result_path),
+                                "output_directory": str(output_path),
+                                "markdown_content": markdown_content,
+                                "original_size": original_size,
+                                "markdown_size": original_markdown_size,
+                                "compression_ratio": round(compression_ratio, 1),
+                                "is_split": False
+                            })
+                        else:
+                            # Files were split
+                            saved_files = splitter.save_split_files(split_files, output_path)
+                            
+                            # Remove the original file if it was split
+                            if len(split_files) > 1:
+                                try:
+                                    os.remove(result_path)
+                                except OSError:
+                                    pass
+                            
+                            total_markdown_size = sum(f['size'] for f in saved_files)
+                            compression_ratio = (1 - total_markdown_size / original_size) * 100
+                            
+                            results.append({
+                                "success": True,
+                                "filename": file.filename,
+                                "output_directory": str(output_path),
+                                "original_size": original_size,
+                                "markdown_size": total_markdown_size,
+                                "compression_ratio": round(compression_ratio, 1),
+                                "is_split": True,
+                                "split_files": saved_files,
+                                "total_files": len(saved_files)
+                            })
                     else:
                         results.append({
                             "success": False,
