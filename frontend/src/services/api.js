@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create axios instance with base configuration
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8000',
+  baseURL: process.env.REACT_APP_API_URL || '/api',
   timeout: 30000, // 30 seconds timeout for file uploads
 });
 
@@ -54,7 +54,7 @@ export const convertSinglePDF = async (file, outputDir = '') => {
   }
 
   try {
-    const response = await api.post('/api/convert/single', formData, {
+    const response = await api.post('/convert/single', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -85,7 +85,7 @@ export const convertMultiplePDFs = async (files, outputDir = '') => {
   }
 
   try {
-    const response = await api.post('/api/convert/multiple', formData, {
+    const response = await api.post('/convert/multiple', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -104,7 +104,7 @@ export const convertMultiplePDFs = async (files, outputDir = '') => {
  */
 export const downloadMarkdownFile = async (filename) => {
   try {
-    const response = await api.get(`/api/download/${filename}`, {
+    const response = await api.get(`/download/${filename}`, {
       responseType: 'blob',
     });
     
@@ -120,7 +120,7 @@ export const downloadMarkdownFile = async (filename) => {
  */
 export const checkHealth = async () => {
   try {
-    const response = await api.get('/api/health');
+    const response = await api.get('/health');
     return response.data;
   } catch (error) {
     throw new Error(`Health check failed: ${error.message}`);
